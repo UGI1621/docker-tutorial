@@ -1,0 +1,12 @@
+services:
+  web:
+    build: .			# make docker image by current directory Dockerfile
+    ports:
+      - "8000:8000"		# host:8000 -> container:8000 port mapping
+    environment:
+      - REDIS_HOST=redis	# set env value (Redis's host name)
+    depends_on:
+      - redis			# execute redis container before this container
+
+  redis:
+    image: redis:7-alpine	# pull Docker image from Docker Hub
