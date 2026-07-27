@@ -3,13 +3,13 @@
 - [x]  Docker
     - [x]  container
     - [x]  image
-		- [ ]  Docker Hardened Images
-    - [ ]  Dockerfile
-    - [ ]  Docker compose
-        - [ ]  `*.yml` file
+		- [x]  Docker Hardened Images
+    	- [ ]  Dockerfile
     - [ ]  volume
         - [ ]  named volume
         - [ ]  Bind mounts
+    - [ ]  Docker compose
+        - [ ]  `*.yml` file
     - [ ]  docker-network
         - [ ]  `host` `--link` `linkes`  command
     - [ ]  deamons
