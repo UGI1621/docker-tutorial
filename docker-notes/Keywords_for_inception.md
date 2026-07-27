@@ -2,10 +2,11 @@
 
 - [x]  Docker
     - [x]  container
-    - [ ]  image
+    - [x]  image
+		- [ ]  Docker Hardened Images
+    - [ ]  Dockerfile
     - [ ]  Docker compose
         - [ ]  `*.yml` file
-    - [ ]  Dockerfile
     - [ ]  volume
         - [ ]  named volume
         - [ ]  Bind mounts
