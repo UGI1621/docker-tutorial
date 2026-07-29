@@ -488,8 +488,503 @@ RUN ln -s /usr/share/dotnet/dotnet /usr/bin/dotnet
 
 <br>
 
+## RUN
+
+`RUN` 명령어는 현재 이미지 위에 **새로운 레이어를 생성**하기 위해 명령을 실행한다.
+
+추가된 레이어는 Dockerfile의 다음 단계에서 사용된다.
+
+```docker
+# Shell format
+RUN [OPTIONS] <command> ...
+
+# Exec format
+RUN [OPTIONS] ["<command>", ...]
+```
+
+보통 shell format이 사용되고, 줄바꿈 이스케이프`\` 나 Heredoc을 사용하여 긴 명령을 여러 줄에 걸쳐 작성할 수 있다.
+
+<br>
+
+`RUN` 명령의 캐시는 다음 빌드에서 무효화되지 않는다.
+
+예를들어 다음 명령어를 이전에 실행했었다면
+
+```docker
+RUN apt-get dist-upgrade -y
+```
+
+새로 Build할 때 `RUN`을 수행하지 않고 이전에 실행했던 결과의 캐시를 가져오게 된다.
+
+`--no-cache` 옵션을 사용하여 캐시를 무효화 할 수 있다.
+
+<br>
+
+또한 `ADD` , `COPY` 명령어는 `RUN` 의 캐시를 무효화할 수도 있다.
+
+예를들어
+
+```docker
+FROM ubuntu
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+```
+
+같은 Dockerfile을 build한 상황에서 다음 build 때 `requirements.txt` 가 변경되었다면
+
+Docker입장에서 “`COPY` 결과가 바뀌었네” 라고 판단하고 `RUN` 을 다시 실행시킨다.
+
+### OPTIONS
+
+- `RUN --mount`
+
+    ```docker
+    RUN --mount=[type=TYPE][,option=<value>[,option=<value>]...]
+    ```
+
+    현재 빌드중인 `RUN` 명령에서만 사용할 수 있는 File System Mount를 생성할 수 있게 해주는 옵션
+
+    - Host File System이나 다른 Build Stage를 Bind Mount한다.
+    - Secrets나 SSH Agent 소켓에 접근한다.
+    - 패키지 관리자나 컴파일러의 캐시를 유지하여 빌드 속도를 향상시킨다.
+
+    - `type`
+
+		- `bind`
+			- Build Context나 다른 Build Stage를 Read-only로 바인드 마운트한다.
+			- Options
+				- `target` , `dst` , `destination` : 마운트될 대상 경로
+				- `source` : `from` 에서 가져올 원본 경로. 기본값은 `from` 의 루트 디렉토리
+				- `from` : 원본이 되는 Build Stage, Context, Image의 이름. 기본값은 Build Context
+				- `rw` , `readwrite` : 마운트에 대한 쓰기권한을 허용. 단, `RUN` 명령이 끝나면 작성된 데이터는 모두 삭제되며, 이미지 레이어 저장되지않음.
+
+			```docker
+			FROM gcc
+
+			RUN --mount=type=bind,source=hello.c,target=/hello.c \
+				gcc /hello.c -o /hello
+			```
+
+			`RUN` 이 끝나면 `/hello.c` 는 없어진다.
+
+		<br>
+
+		- `cache`
+			- 컴파일러나 패키지 관리자의 캐시 디렉토리를 임시로 마운트하여 빌드 속도를 높인다.
+			- 오직 성능 향상만을 위한 기능이다.
+			- 위에 의해 캐시 디렉토리의 내용에 의존해서는 안된다.
+				- 다른 빌드가 같은 캐시를 덮어쓸 수도 있고, Buildkit이 캐시를 삭제할 수도 있다.
+
+		<br>
+
+		- `tmpfs`
+			- 빌드 컨테이너 내부의 `tmpfs` (메모리 기반 임시 파일 시스템)을 마운트한다.
+			- 엄청 큰 임시파일을 만들때나 민감한 데이터를 잠깐 저장할 때 사용된다
+			- 일반적인 웹서비스같은 소규모 빌드 환경에서는 사용할 일이 거의 없다.
+			- 빌드 성능을 극한까지 최적화 하거나, 대규모 빌드 환경에서 주로 사용된다.
+
+		<br>
+
+		- `secret`
+			- 개인 키와 같은 민감한 파일을 이미지나 빌드 캐시에 포함시키지 않고 빌드 컨테이너에서 사용할 수 있도록 한다.
+			- Options
+				- `id` : secret의 ID. 기본값은 target 경로의 basename
+				- `target` , `dst` , `destination`  : secret을 지정한 경로에 마운트한다.
+					- 경로와 `env` 둘다 지정하지 않으면 `/run/secrets/` + `id` 에 마운트
+				- `env` : 파일 대신 환경 변수로 secret을 마운트하거나, 두 형태로 마운트한다.
+				- `required` : `true` 로 설정하면 secret을 사용할 수 없을 때 명령이 오류를 발생한다. 기본값은 `false`
+				- `mode` : secret 파일의 권한 모드. 기본값은 `0400`
+				- `uid` : secret 파일의 사용자 id. 기본값 `0`
+				- `gid` : secret 파일의 그룹 id. 기본값 `0`
+
+			```docker
+			# syntax=docker/dockerfile:1
+
+			FROM alpine
+
+			RUN --mount=type=secret,id=API_KEY,env=API_KEY \
+				some-command --token-from-env $API_KEY
+			```
+
+			위 같은 빌드 환경에서 `API_KEY` 가 환경변수로 설정되어 있다고 가정하면
+
+			```bash
+			docker buildx build --secret id=API_KEY .
+			```
+
+			같은 명령어로 빌드가 가능하다.
+
+		<br>
+
+		- `ssh`
+			- SSH Agent를 통해 SSH 키에 접근할 수 있도록 하며, 암호가 설정된 키도 지원한다.
+
+<br>
+
+## `ENV`
+
+```docker
+ENV <key>=<value> [<key>=<value>...]
+```
+
+이 값은 해당 Build Stage의 이후 모든 명령에서 환경 변수로 사용되며, 여러 명령에서 인라인으로 치환될 수 있다.
+
+명령줄 파싱과 마찬가지로, 값 안에 공백을 포함하려면 따옴표와 백슬래시`\` 를 사용하 수 있다.
+
+```docker
+ENV MY_NAME="John Doe"
+ENV MY_DOG=Rex\ The\ Dog
+ENV MY_CAT=fluffy
+
+# 한번에도 가능
+ENV MY_NAME="John Doe" MY_DOG=Rex\ The\ Dog \
+    MY_CAT=fluffy
+```
+
+<br>
+
+`ENV` 로 설정한 환경 변수는 **생성된 이미지에서 컨테이너를 실행할 때도 유지된다**.
+
+```bash
+docker inspect
+****# or
+****docker run --env <key>=<value>
+```
+
+위 같은 명령어로 확인 가능하다.
+
+하나의 stage는 부모 stage 에서 `ENV` 로 설정된 환경 변수를 상속받는다.
+
+
+<br>
+
+## `CMD`
+
+이미지로부터 컨테이너를 실행할 때 실행될 명령을 설정한다.
+
+```bash
+# Exec format
+CMD ["executable","param1","param2"]
+
+# Exec format use `ENTRYPOINT`
+CMD ["param1","param2"]
+
+# Shell format
+CMD command param1 param2
+```
+
+하나의 Dockerfile에는 **하나의 `CMD` 만 존재할 수 있다.**
+
+여러개의 `CMD` 를 작성하게되면 마지막 `CMD` 만 적용된다.
+
+
+<br>
+
+이 명령어의 목적은 **실행되는 컨테이너에 대한 기본값을 제공하는 것**이다.
+
+이 기본값에는 실행파일이 포함될 수도, 실행파일을 생략할 수도 있다.
+
+<br>
+
+실행파일을 생략하는 경우 반드시 `ENTRYPOINT` 명령도 함께 지정해야한다.
+
+컨테이너가 항상 같은 실행 파일을 실행해야 한다면, `CMD` 와 함께 `ENTRYPOINT` 사용을 고려해야 한다.
+
+`docker run` 실행 시 사용자가 인자를 지정하면 `CMD` 에 지정된 기본값은 덮어쓰지만
+
+기본 `ENTRYPOINT` 는 그대로 사용된다.
+
+<br>
+
+`CMD` 를 `ENTRYPOINT` 의 기본 인자로 제공하는 용도로 사용하는 경우
+
+두 명령어 모두 exec format으로 작성해야한다.
+
+<br>
+
+**`RUN` 과 `CMD` 를 혼동해선 안된다.**
+
+- `RUN` 은 실제로 명령을 실행하고 그 결과를 이미지 레이어에 저장한다.
+- `CMD` 는 빌드 시점에는 아무것도 하지 않으며, 이미지가 실행될 때 사용할 명령을 지정한다.
+
+<br>
+
+## `ENTRYPOINT`
+
+**컨테이너를 실행 가능한 프로그램처럼 동작하도록 설정**할 수 있게한다.
+
+```docker
+# Exec format (recomand)
+ENTRYPOINT ["executable", "param1", "param2"]
+```
+
+`docker run <image>` 뒤에 전달되는 명령줄 인자들은 exec 형식의 `ENTRYPOINT` 뒤에 추가된다.
+
+그리고 `CMD` 에 지정된 모든 값을 덮어쓰게 된다.
+
+```docker
+FROM ubuntu
+
+ENTRYPOINT ["top", "-b"]
+CMD ["-c"]
+```
+
+컨테이너를 실행하면 `top` 만이 유일한 프로세스로 실행된다.
+
+<br>
+
+`ENTRYPOINT` 도 덮어쓸 수 있는데
+
+```bash
+docker run --entrypoint
+```
+
+로 덮어쓸 수 있다.
+
+<br>
+
+예시)
+
+`CMD` 의 경우
+
+```docker
+FROM ubuntu
+CMD ["/bin/df", "-h"]
+```
+
+```bash
+$ docker build -t ugi/df .
+$ docker run --name ugi-df ugi/df
+```
+
+ 위 경우 Dockerfile에 정의된대로 `df -h` 명령을 실행하게 된다.
+
+컨테이너 실행시 추가 인자 값을 줘서 컨테이너가 수행할 명령을 바꾼다면
+
+```bash
+$ docker run --name ugi-df ugi/df ps -aef
+```
+
+Dockerfile에 정의된 `df -h` 가 아닌 `ps -aef` 가 실행된다. (`CMD` 덮어쓰게됨)
+
+```bash
+$ docker inspect ugi-df
+...
+				"Cmd": [
+						"ps",
+						"-aef"
+				],
+...
+```
+
+`docker inspect <image>` 의 `Cmd` 필드에서 설정 내용을 확인할 수 있다.
+
+<br>
+
+`ENTRYPOINT` 의 경우
+
+```docker
+FROM ubuntu
+ENTRYPOINT ["/bin/df", "-h"]
+```
+
+```bash
+$ docker build -t ugi/df:entry .
+$ docker run --name ugi-df ugi/df:entry
+```
+
+`df -h` 의 실행결과가 나온다 `CMD` 의 경우와 다를게 없다. 하지만
+
+```bash
+$ docker inspect ugi-df
+...
+            "Cmd": null,
+...
+
+            "Entrypoint": [
+                "/bin/df",
+                "-h"
+            ],
+...
+```
+
+`docker inspect` 의 결과에서 차이점을 볼 수 있다.
+
+<br>
+
+현재 이미지에서 추가 인자를 넣어 다음과 같이 컨테이너를 실행해보면
+
+```bash
+$ docker run --name ugi-df ugi/df:entry ps -aef
+```
+
+에러를 출력하며 동작되지 않는다
+
+```bash
+ $ docker inspect ugi-df
+ ...
+            "Cmd": [
+                "ps",
+                "-aef"
+            ],
+ ...
+            "Entrypoint": [
+                "/bin/df",
+                "-h"
+            ],
+...
+```
+
+동작이 `df -h ps -aef` 로 수행되어 에러를 출력된것을 확인할 수 있다.
+
+정리하자면
+
+- `CMD` : 컨테이너 실행시 설정될 기본 인자 설정 (실행시 인자값을 받아오면 덮어써짐)
+- `ENTRYPOINT` : 컨테이너 실행시 고정적으로 실행될 인자 설정 ( `--entrypoint` 를 사용해야 덮어써짐)
+
+<br>
+
+## `EXPOSE`
+
+```docker
+EXPOSE <port> [<port>/<protocol>...]
+```
+
+이 컨테이너가 실행될 때 특정 네트워크 포트에서 수신 대기(Listen)한다는 것을 Docker에게 알린다.
+
+포트가 TCP 혹은 UDP중 어떤 프로토콜을 사용하는지 지정할 수 있고 기본값은 TCP다.
+
+실제로 포트를 외부에 공개하는 것이 아니라 **어떤 포트를 공개할 에정인지 알려주는 문서 역할**이다.
+
+컨테이너 실행 시 **실제로 포트를 공개하려면**
+
+`docker run -p` 를 사용하여 하나 이상의 포트를 공개하고 매핑하거나
+
+`-P` 옵션을 사용하여 노출된 모든 포트를 공개하고 높은 번호의 포트와 매핑 해야한다.
+
+<br>
+
+
+```docker
+EXPOSE 80/tcp
+EXPOSE 80/udp
+# 둘다 있으면 둘다 노출됨
+```
+
+단지 **문서 역할**이라 Dockerfile에 명시되어 있지 않더라도 실행 지점에 `-p` 옵션으로 재정의 가능하다.
+
+`docker network` 명령은 특정 포트를 노출하거나 공개하지 않고도 컨테이너 간 통신을 위한 네트워크를 생성할 수 있다.
+
+같은 네트워크에 연결된 컨테이너들은 어떤 포트든 서로 통신할 수 있기 때문이다.
+
+<br>
+
+## `VOLUME`
+
+```docker
+VOLUME ["/data"]
+```
+
+지정된 이름으로 mount point를 생성하고, 해당 위치가 호스트 또는 다른 컨테이너에서 외부적으로 마운트되는 볼륨을 저장하는 위치임을 표시한다.
+
+<br>
+
+```docker
+FROM ubuntu
+
+RUN mkdir /myvol
+RUN echo "hello world" > /myvol/greeting
+
+VOLUME /myvol
+```
+
+이 Dockerfile로 생성된 이미지는 `/myvol` 에 새로운 마운트 지점을 생성하고,
+
+기존 이미지 내부에 있던 `greeting` 파일을 새로 생성된 볼륨으로 복사한다.
+
+<br>
+
+Dockerfile 내부에서 Volume을 다룰 때 주의해야 하는점이
+
+1. 이미 mount point를 생성한 이후 해당 Volmue에 대한 변경사항이 생긴다면,
+    - Legacy builder를 사용시 변경 사항은 버려진다.
+    - BuildKit을 사용시 변경 사항이 유지된다.
+
+1. Mount point(디렉토리)는 컨테이너 내부 위치로만 설정할 수 있다.
+    - 실제 호스트 디렉토리로 지정할 경우 호스트 환경에따라 다르기 때문.
+        - 호스트 이름도 다를것이고, 호스트의 작업 디렉토리의 위치도 다름
+    - 호스트 디렉토리를 지정할 경우 Dockerfile이 아니라 `docker run -v` 를 사용해야한다
+        - `docker run -v <host-dir>:<container-dir> image`
+
+<br>
+
+생성된 볼륨에 대한 링크는 다른 컨테이너 생성 시에 아래와 같이 연결한다.
+
+```bash
+docker run -v [볼륨 이름]:[컨테이너 내부 디렉토리 경로] --name [컨테이너 이름] [이미지 이름]
+```
+
+<br>
+
+## `USER`
+
+```docker
+USER <user>[:<group>]
+# or
+USER UID[:<GID>]
+```
+
+현재 Build stage의 나머지 부분에서 사용할 기본 user와 group을 설정한다.
+
+설정된 사용자는
+
+- `RUN` 명령 실행 시
+- 컨테이너 실행 시 `ENTRYPOINT` 와 `CMD` 명령 실행 시
+
+에 사용된다.
+
+<br>
+
+사용자와 그룹을 함께 지정하면, 해당 사용자는 **지정한 그룹에만 속한 것으로 처리된다.**
+
+이미 설정되어 있는 다른 그룹 멤버십은 모두 무시된다.
+
+사용자가 **기본(primary) 그룹을 가지고 있지 않으면**, 이미지(또는 이후 명령)는 **root 그룹**으로 실행된다.
+
+<br>
+
+## `HEALTHCHECK`
+
+이 명령은 두가지 형식을 가진다
+
+- `HEALTHCHECK [OPTIONS] CMD command`
+    - 컨테이너 내부에서 명령을 실행하여 컨테이너의 상태를 확인한다.
+- `HEALTHCHECK NONE`
+    - 베이스 이미지로부터 상속받은 `HEALTHCHECK` 를 비활성화 한다.
+
+**컨테이너가 정상적으로 동작하고 있는지 Docker가 검사하는 방법**을 정의한다.
+
+<br>
+
+### `CMD` 앞에서 사용할 수 있는 옵션
+
+- `-interval=DURATION`
+    - 기본값: `30s`
+- `-timeout=DURATION`
+    - 기본값: `30s`
+- `-start-period=DURATION`
+    - 기본값: `0s`
+- `-start-interval=DURATION`
+    - 기본값: `5s`
+- `-retries=N`
+    - 기본값: `3`
+
 ---
 
-https://docs.docker.com/reference/dockerfile
+[Dockfile reference](https://docs.docker.com/reference/dockerfile)
 
-https://daylog.frogset.com/481
+[Dockerfile COPY --link, 다들 쓴다는데 진짜 좋을까](https://daylog.frogset.com/481)
+
+[Dockerfile Entrypoint와 CMD의 올바른 사용 방법](https://bluese05.tistory.com/77)
+
+[[docker] 볼륨(volume)의 개념에 대해 알아보고 활용해봅시다.](https://formulous.tistory.com/17)

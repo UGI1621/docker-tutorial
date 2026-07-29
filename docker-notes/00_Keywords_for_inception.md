@@ -4,7 +4,8 @@
     - [x]  container
     - [x]  image
 		- [x]  Docker Hardened Images
-    	- [ ]  Dockerfile
+    	- [x]  Dockerfile
+		- [ ]  Dockerfile_more
     - [ ]  volume
         - [ ]  named volume
         - [ ]  Bind mounts
