@@ -6,9 +6,9 @@
 		- [x]  Docker Hardened Images
     	- [x]  Dockerfile
 		- [ ]  Dockerfile_more
-    - [ ]  volume
-        - [ ]  named volume
-        - [ ]  Bind mounts
+    - [x]  volume
+        - [x]  named volume
+        - [x]  Bind mounts
     - [ ]  Docker compose
         - [ ]  `*.yml` file
     - [ ]  docker-network
